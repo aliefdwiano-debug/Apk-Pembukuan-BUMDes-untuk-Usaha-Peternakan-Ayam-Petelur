@@ -186,7 +186,6 @@ app.get('/api/bumdes/all', optionalAuth, async (_req, res) => {
     }
 
     // Otherwise use PostgreSQL
-    await seedInitialDataIfEmpty();
     const data = await getAllBumdesData();
     res.json({ success: true, data, source: 'postgresql' });
   } catch (error: any) {
@@ -366,12 +365,15 @@ app.post('/api/bumdes/pengurus', optionalAuth, async (req, res) => {
 // Initial seed trigger
 app.post('/api/bumdes/seed', optionalAuth, async (_req, res) => {
   try {
-    const seeded = await seedInitialDataIfEmpty();
     if (isSupabaseConfigured) {
-      seedInitialDataToSupabase().catch(() => {});
+      await seedInitialDataToSupabase();
+      return res.json({ success: true, seeded: true });
     }
-    res.json({ success: true, seeded });
+
+    const seeded = await seedInitialDataIfEmpty();
+    return res.json({ success: true, seeded });
   } catch (error: any) {
+    console.error('Seed error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -395,7 +397,11 @@ async function startServer() {
   }
 
   // Pre-seed database if empty
-  seedInitialDataIfEmpty().catch((e) => console.warn('Background initial seed notice:', e.message));
+  if (!isSupabaseConfigured) {
+  seedInitialDataIfEmpty().catch((e) =>
+    console.warn('Background initial seed notice:', e.message)
+  );
+}
 
   app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT} (${isProduction ? 'production' : 'development'})`);
