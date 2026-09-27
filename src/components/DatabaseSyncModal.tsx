@@ -23,6 +23,7 @@ import {
   pullFromDatabase,
   pushToDatabase,
   checkDatabaseHealth,
+  seedDatabase,
   getLastSyncTime
 } from '../lib/databaseService';
 import {
@@ -34,6 +35,9 @@ import {
   getStoredPersediaan,
   getStoredLogProduksi
 } from '../lib/storage';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { checkSupabaseTablesExist, seedInitialDataToSupabase } from '../lib/services/bumdesService';
+import supabaseSchemaSql from '../../supabase_schema.sql?raw';
 
 interface Props {
   isOpen: boolean;
@@ -66,11 +70,17 @@ export const DatabaseSyncModal: React.FC<Props> = ({
   const [supabaseInfo, setSupabaseInfo] = useState<{
     isConfigured: boolean;
     supabaseUrl: string | null;
+    projectHost: string | null;
+    tablesExist: boolean;
+    message: string;
     sqlScript: string;
   }>({
-    isConfigured: false,
-    supabaseUrl: null,
-    sqlScript: ''
+    isConfigured: isSupabaseConfigured,
+    supabaseUrl: (import.meta.env.VITE_SUPABASE_URL as string) || null,
+    projectHost: null,
+    tablesExist: false,
+    message: '',
+    sqlScript: supabaseSchemaSql
   });
   const [copiedSql, setCopiedSql] = useState(false);
 
@@ -121,13 +131,18 @@ export const DatabaseSyncModal: React.FC<Props> = ({
 
   const fetchSupabaseInfo = async () => {
     try {
-      const res = await fetch('/api/supabase/info');
-      if (res.ok) {
-        const json = await res.json();
-        setSupabaseInfo(json);
-      }
+      const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string) || null;
+      const check = await checkSupabaseTablesExist();
+      setSupabaseInfo((prev) => ({
+        ...prev,
+        isConfigured: isSupabaseConfigured,
+        supabaseUrl,
+        projectHost: supabaseUrl ? supabaseUrl.replace(/https?:\/\//, '') : null,
+        tablesExist: check.exists,
+        message: check.message
+      }));
     } catch {
-      // Fallback
+      // Fallback: keep previous state
     }
   };
 
@@ -181,15 +196,14 @@ export const DatabaseSyncModal: React.FC<Props> = ({
     }
     setActionLoading(true);
     try {
-      const res = await fetch('/api/bumdes/seed', { method: 'POST' });
-      const json = await res.json();
-      if (json.success) {
+      const res = await seedDatabase();
+      if (res.success) {
         await pullFromDatabase();
         refreshStats();
         if (onSyncCompleted) onSyncCompleted();
         showMessage('Data awal BUMDes berhasil dimuat ulang ke database.', 'success');
       } else {
-        showMessage(json.error || 'Gagal mereset data', 'error');
+        showMessage(res.message || 'Gagal mereset data', 'error');
       }
     } catch (err: any) {
       showMessage(err.message || 'Gagal reset data', 'error');
@@ -516,15 +530,15 @@ export const DatabaseSyncModal: React.FC<Props> = ({
                         onClick={async () => {
                           setActionLoading(true);
                           try {
-                            const res = await fetch('/api/supabase/seed-now', { method: 'POST' });
-                            const json = await res.json();
-                            if (json.success) {
-                              showMessage(json.message, 'success');
-                              await pullFromDatabase();
-                              refreshStats();
-                            } else {
-                              showMessage(json.error || 'Gagal sinkron', 'error');
-                            }
+                            const seeded = await seedInitialDataToSupabase();
+                            showMessage(
+                              seeded
+                                ? 'Seluruh data berhasil disinkronkan ke Supabase Anda!'
+                                : 'Data Supabase sudah terisi, tidak ada yang diubah.',
+                              'success'
+                            );
+                            await pullFromDatabase();
+                            refreshStats();
                           } catch (err: any) {
                             showMessage(err.message || 'Gagal sinkron', 'error');
                           } finally {

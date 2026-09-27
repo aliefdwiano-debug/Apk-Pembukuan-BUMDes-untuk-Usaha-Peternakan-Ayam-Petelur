@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient.ts';
+import { supabase, isSupabaseConfigured } from '../supabase.ts';
 import {
   BumdesProfil,
   Pengurus,
@@ -11,7 +11,7 @@ import {
   ItemPersediaan,
   LogProduksi,
   StockOpnameEntry
-} from '../types.ts';
+} from '../../types.ts';
 import {
   initialProfil,
   initialPengurus,
@@ -23,7 +23,7 @@ import {
   initialTransaksiKas,
   initialLogProduksi,
   initialPayrollDistributions
-} from '../data/initialData.ts';
+} from '../../data/initialData.ts';
 
 export async function checkSupabaseTablesExist(): Promise<{ exists: boolean; message: string }> {
   if (!isSupabaseConfigured || !supabase) {
@@ -631,4 +631,66 @@ export async function getAllFromSupabase() {
     stockOpname,
     settings
   };
+}
+
+// FULL BULK SYNC (menggantikan endpoint lama POST /api/bumdes/sync-all)
+export interface BumdesSyncPayload {
+  profil?: BumdesProfil;
+  pengurus?: Pengurus[];
+  aset?: AsetTetap[];
+  modal?: ModalKewajiban[];
+  masterTransaksi?: MasterTransaksi[];
+  transaksiKas?: TransaksiKas[];
+  karyawan?: Karyawan[];
+  payrollDistributions?: Record<number, PayrollDistribution[]>;
+  itemPersediaan?: ItemPersediaan[];
+  logProduksi?: LogProduksi[];
+  stockOpname?: StockOpnameEntry[];
+  settings?: {
+    saldoAwalDone?: boolean;
+    sertakanAsetTetap?: boolean;
+    saldoAwalDate?: string;
+  };
+}
+
+export async function syncAllToSupabase(payload: BumdesSyncPayload) {
+  const {
+    profil,
+    pengurus,
+    aset,
+    modal,
+    masterTransaksi,
+    transaksiKas,
+    karyawan,
+    payrollDistributions,
+    itemPersediaan,
+    logProduksi,
+    stockOpname,
+    settings
+  } = payload;
+
+  if (profil) await saveProfilToSupabase(profil);
+  if (pengurus) await replacePengurusInSupabase(pengurus);
+  if (aset) await replaceAsetInSupabase(aset);
+  if (modal) await replaceModalInSupabase(modal);
+  if (masterTransaksi) await replaceMasterTransaksiInSupabase(masterTransaksi);
+  if (transaksiKas) await replaceTransaksiKasInSupabase(transaksiKas);
+  if (karyawan) await replaceKaryawanInSupabase(karyawan);
+  if (payrollDistributions) await replacePayrollInSupabase(payrollDistributions);
+  if (itemPersediaan) await replacePersediaanInSupabase(itemPersediaan);
+  if (logProduksi) await replaceProduksiInSupabase(logProduksi);
+  if (stockOpname) await replaceStockOpnameInSupabase(stockOpname);
+  if (settings) {
+    if (typeof settings.saldoAwalDone === 'boolean') {
+      await saveAppSettingToSupabase('bumdes_saldo_awal_done_v2', String(settings.saldoAwalDone));
+    }
+    if (typeof settings.sertakanAsetTetap === 'boolean') {
+      await saveAppSettingToSupabase('bumdes_sertakan_aset_tetap_v2', String(settings.sertakanAsetTetap));
+    }
+    if (settings.saldoAwalDate) {
+      await saveAppSettingToSupabase('bumdes_saldo_awal_date_v2', String(settings.saldoAwalDate));
+    }
+  }
+
+  return getAllFromSupabase();
 }

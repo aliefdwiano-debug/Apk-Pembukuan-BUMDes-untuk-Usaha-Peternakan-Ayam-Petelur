@@ -41,6 +41,7 @@ import {
 } from '../lib/storage';
 import { setSyncPaused, triggerAutoSyncToSheets } from '../lib/googleSheetsService';
 import { formatRupiah, formatTanggalLengkap, formatThousandDisplay, parseRupiah } from '../lib/formatters';
+import { saveProfilToSupabase, replacePengurusInSupabase } from '../lib/services/bumdesService';
 
 type SubTab = 'info' | 'pengurus' | 'aset' | 'modal' | 'saldoAwal';
 
@@ -131,17 +132,9 @@ export const ProfilModule: React.FC<ProfilModuleProps> = ({
     const updated = saveStoredProfil(profil);
     setProfil(updated);
     onProfilUpdated();
-    fetch('/api/bumdes/profil', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updated)
-    })
-      .then((res) => {
-        if (res.ok) {
-          showMessage('Profil BUMDes berhasil disimpan & disinkronkan ke Supabase.', 'success');
-        } else {
-          showMessage('Profil BUMDes berhasil disimpan.', 'success');
-        }
+    saveProfilToSupabase(updated)
+      .then(() => {
+        showMessage('Profil BUMDes berhasil disimpan & disinkronkan ke Supabase.', 'success');
       })
       .catch(() => {
         showMessage('Profil BUMDes berhasil disimpan.', 'success');
@@ -175,17 +168,9 @@ export const ProfilModule: React.FC<ProfilModuleProps> = ({
     refreshAllData();
 
     // Direct instant sync to Supabase
-    fetch('/api/bumdes/pengurus', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updatedList)
-    })
-      .then((res) => {
-        if (res.ok) {
-          showMessage('Data pengurus berhasil disimpan & disinkronkan ke Supabase.', 'success');
-        } else {
-          showMessage('Data pengurus berhasil disimpan.', 'success');
-        }
+    replacePengurusInSupabase(updatedList)
+      .then(() => {
+        showMessage('Data pengurus berhasil disimpan & disinkronkan ke Supabase.', 'success');
       })
       .catch(() => {
         showMessage('Data pengurus berhasil disimpan.', 'success');
@@ -197,17 +182,9 @@ export const ProfilModule: React.FC<ProfilModuleProps> = ({
     refreshAllData();
 
     // Direct instant sync to Supabase
-    fetch('/api/bumdes/pengurus', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updatedList)
-    })
-      .then((res) => {
-        if (res.ok) {
-          showMessage(`Pengurus "${nama}" berhasil dihapus dari Supabase.`, 'success');
-        } else {
-          showMessage(`Pengurus "${nama}" berhasil dihapus.`, 'success');
-        }
+    replacePengurusInSupabase(updatedList)
+      .then(() => {
+        showMessage(`Pengurus "${nama}" berhasil dihapus dari Supabase.`, 'success');
       })
       .catch(() => {
         showMessage(`Pengurus "${nama}" berhasil dihapus.`, 'success');

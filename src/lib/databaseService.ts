@@ -28,6 +28,14 @@ import {
   setSertakanAsetTetapEnabled,
   setStoredSaldoAwalDate
 } from './storage.ts';
+import { isSupabaseConfigured } from './supabase.ts';
+import {
+  checkSupabaseTablesExist,
+  getAllFromSupabase,
+  syncAllToSupabase,
+  seedInitialDataToSupabase,
+  getProfilFromSupabase
+} from './services/bumdesService.ts';
 
 let isSyncing = false;
 let isPulling = false;
@@ -57,22 +65,26 @@ export async function checkDatabaseHealth(): Promise<{
   bumdes?: string;
   error?: string;
 }> {
-  try {
-    const res = await fetch('/api/health');
-    if (!res.ok) {
-      return { connected: false, database: 'PostgreSQL', error: `HTTP ${res.status}` };
-    }
-    const data = await res.json();
+  if (!isSupabaseConfigured) {
     return {
-      connected: data.connected ?? true,
-      database: data.database || 'PostgreSQL (Cloud SQL)',
-      bumdes: data.bumdes
+      connected: false,
+      database: 'Supabase (belum dikonfigurasi)',
+      error: 'VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY belum diatur'
+    };
+  }
+  try {
+    const check = await checkSupabaseTablesExist();
+    const profil = await getProfilFromSupabase();
+    return {
+      connected: check.exists,
+      database: check.exists ? 'Supabase (Aktif & Terhubung)' : 'Supabase (Tabel Belum Dibuat di SQL Editor)',
+      bumdes: profil.namaBumdes
     };
   } catch (err: any) {
     return {
       connected: false,
-      database: 'PostgreSQL (Cloud SQL)',
-      error: err.message || 'Cannot reach backend'
+      database: 'Supabase',
+      error: err.message || 'Database unavailable'
     };
   }
 }
@@ -81,18 +93,18 @@ export async function pullFromDatabase(): Promise<{ success: boolean; message: s
   if (isPulling) {
     return { success: false, message: 'Sync sedang berjalan...' };
   }
+  if (!isSupabaseConfigured) {
+    return { success: false, message: 'Supabase belum dikonfigurasi (VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY).' };
+  }
 
   isPulling = true;
   try {
-    const res = await fetch('/api/bumdes/all');
-    if (!res.ok) {
-      throw new Error(`Gagal memuat data dari database (HTTP ${res.status})`);
-    }
-    const json = await res.json();
-    if (!json.success || !json.data) {
-      throw new Error(json.error || 'Respon database tidak valid');
+    const check = await checkSupabaseTablesExist();
+    if (!check.exists) {
+      throw new Error(check.message);
     }
 
+    const data = await getAllFromSupabase();
     const {
       profil,
       pengurus,
@@ -106,7 +118,7 @@ export async function pullFromDatabase(): Promise<{ success: boolean; message: s
       logProduksi,
       stockOpname,
       settings
-    } = json.data;
+    } = data;
 
     // Update local state without triggering an immediate push cycle
     if (profil && profil.namaBumdes) {
@@ -161,7 +173,7 @@ export async function pullFromDatabase(): Promise<{ success: boolean; message: s
       window.dispatchEvent(new Event('bumdes_data_updated'));
     }
 
-    return { success: true, message: 'Data berhasil disinkronkan dari database PostgreSQL.' };
+    return { success: true, message: 'Data berhasil disinkronkan dari Supabase.' };
   } catch (err: any) {
     lastSyncError = err.message || 'Gagal sinkronisasi';
     console.error('pullFromDatabase error:', err);
@@ -174,6 +186,9 @@ export async function pullFromDatabase(): Promise<{ success: boolean; message: s
 export async function pushToDatabase(): Promise<{ success: boolean; message: string }> {
   if (isSyncing) {
     return { success: false, message: 'Proses penyimpanan sedang berlangsung...' };
+  }
+  if (!isSupabaseConfigured) {
+    return { success: false, message: 'Supabase belum dikonfigurasi (VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY).' };
   }
 
   isSyncing = true;
@@ -197,32 +212,34 @@ export async function pushToDatabase(): Promise<{ success: boolean; message: str
       }
     };
 
-    const res = await fetch('/api/bumdes/sync-all', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      throw new Error(`Gagal menyimpan ke database (HTTP ${res.status})`);
+    const check = await checkSupabaseTablesExist();
+    if (!check.exists) {
+      throw new Error(check.message);
     }
 
-    const json = await res.json();
-    if (!json.success) {
-      throw new Error(json.error || 'Penyimpanan gagal');
-    }
+    await syncAllToSupabase(payload);
 
     lastSyncTimestamp = new Date().toLocaleTimeString('id-ID');
     lastSyncError = null;
-    return { success: true, message: 'Semua data tersimpan otomatis ke database PostgreSQL.' };
+    return { success: true, message: 'Semua data tersimpan otomatis ke Supabase.' };
   } catch (err: any) {
     lastSyncError = err.message || 'Penyimpanan gagal';
     console.error('pushToDatabase error:', err);
     return { success: false, message: lastSyncError || 'Penyimpanan gagal' };
   } finally {
     isSyncing = false;
+  }
+}
+
+export async function seedDatabase(): Promise<{ success: boolean; seeded: boolean; message?: string }> {
+  if (!isSupabaseConfigured) {
+    return { success: false, seeded: false, message: 'Supabase belum dikonfigurasi.' };
+  }
+  try {
+    const seeded = await seedInitialDataToSupabase();
+    return { success: true, seeded };
+  } catch (err: any) {
+    return { success: false, seeded: false, message: err.message || 'Gagal seed data' };
   }
 }
 
@@ -245,4 +262,3 @@ if (typeof window !== 'undefined') {
     }
   });
 }
-
